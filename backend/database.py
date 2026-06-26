@@ -1,20 +1,41 @@
 from sqlalchemy import create_engine
 
-from sqlalchemy.ext.declarative import (
-    declarative_base
-)
-
 from sqlalchemy.orm import sessionmaker
+
+from sqlalchemy.ext.declarative import declarative_base
+
+from dotenv import load_dotenv
+
+import os
+
+
+# =====================================
+# LOAD ENVIRONMENT VARIABLES
+# =====================================
+
+load_dotenv()
 
 
 # =====================================
 # DATABASE CONFIGURATION
 # =====================================
 
-DATABASE_URL = (
+MYSQLHOST = os.getenv("MYSQLHOST")
 
-    "mysql+pymysql://root:Sai%401234@localhost/ai_pdf_assistant"
+MYSQLPORT = os.getenv("MYSQLPORT")
+
+MYSQLUSER = os.getenv("MYSQLUSER")
+
+MYSQLPASSWORD = os.getenv("MYSQLPASSWORD")
+
+MYSQLDATABASE = os.getenv("MYSQLDATABASE")
+
+
+DATABASE_URL = (
+    f"mysql+pymysql://{MYSQLUSER}:{MYSQLPASSWORD}"
+    f"@{MYSQLHOST}:{MYSQLPORT}/{MYSQLDATABASE}"
 )
+
 
 # =====================================
 # CREATE ENGINE
@@ -22,8 +43,11 @@ DATABASE_URL = (
 
 engine = create_engine(
 
-    DATABASE_URL
+    DATABASE_URL,
+
+    pool_pre_ping=True
 )
+
 
 # =====================================
 # SESSION FACTORY
@@ -37,6 +61,7 @@ SessionLocal = sessionmaker(
 
     bind=engine
 )
+
 
 # =====================================
 # BASE CLASS
