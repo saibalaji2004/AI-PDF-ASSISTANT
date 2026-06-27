@@ -5,10 +5,26 @@ from sentence_transformers import (
 # =====================================
 # Load Embedding Model
 # =====================================
+# =====================================
+# Lazy Loading Model
+# =====================================
 
-model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
-)
+model = None
+
+
+def get_model():
+
+    global model
+
+    if model is None:
+
+        print("Loading Embedding Model...")
+
+        model = SentenceTransformer(
+            "all-MiniLM-L6-v2"
+        )
+
+    return model
 
 # =====================================
 # Generate Embeddings
@@ -35,7 +51,7 @@ def generate_embeddings(
         # Generate Embedding
         # =================================
 
-        embedding = model.encode(text)
+        embedding = get_model().encode(text)
 
         # =================================
         # Store Full Metadata

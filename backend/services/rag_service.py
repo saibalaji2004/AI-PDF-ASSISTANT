@@ -58,10 +58,26 @@ client = OpenAI(
 # =====================================
 # Embedding Model
 # =====================================
+# =====================================
+# Lazy Loading Embedding Model
+# =====================================
 
-embedding_model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
-)
+embedding_model = None
+
+
+def get_embedding_model():
+
+    global embedding_model
+
+    if embedding_model is None:
+
+        print("Loading Embedding Model...")
+
+        embedding_model = SentenceTransformer(
+            "all-MiniLM-L6-v2"
+        )
+
+    return embedding_model
 
 # =====================================
 # Similarity Threshold
@@ -176,7 +192,7 @@ def retrieve_relevant_chunks(
 
     question_embedding = (
 
-        embedding_model.encode(question)
+        get_embedding_model().encode(question)
     )
 
     question_embedding = np.array(
