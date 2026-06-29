@@ -2,6 +2,7 @@ import faiss
 import json
 import numpy as np
 import os
+import traceback
 
 from pathlib import Path
 
@@ -459,8 +460,8 @@ QUESTION:
 
         response = client.chat.completions.create(
 
-            model=
-            "openai/gpt-3.5-turbo",
+
+            model="meta-llama/llama-3.1-8b-instruct:free",
 
             messages=[
                 {
@@ -480,8 +481,10 @@ QUESTION:
 
     except Exception as e:
 
+        print(traceback.format_exc())
+
         answer = (
-            f"LLM Error: {str(e)}"
+            f"LLM Error: {repr(e)}"
         )
 
     return {
@@ -584,8 +587,8 @@ CONTENT:
 
         response = client.chat.completions.create(
 
-            model=
-            "openai/gpt-3.5-turbo",
+
+            model="meta-llama/llama-3.1-8b-instruct:free",
 
             messages=[
                 {
@@ -605,8 +608,10 @@ CONTENT:
 
     except Exception as e:
 
+        print(traceback.format_exc())
+
         summary = (
-            f"Summary Error: {str(e)}"
+            f"Summary Error: {repr(e)}"
         )
 
     return {
@@ -701,8 +706,8 @@ QUESTION:
 
         stream = client.chat.completions.create(
 
-            model=
-            "openai/gpt-3.5-turbo",
+
+            model="meta-llama/llama-3.1-8b-instruct:free",
 
             messages=[
                 {
@@ -736,5 +741,6 @@ QUESTION:
                 yield delta.content
 
     except Exception as e:
+        print(traceback.format_exc())
 
-        yield f"\nStreaming Error: {str(e)}"
+        yield f"\nStreaming Error: {repr(e)}"
