@@ -480,7 +480,7 @@ QUESTION:
 
         response = client.chat.completions.create(
 
-            model="google/gemma-3-4b-it:free",
+            model="meta-llama/llama-3.3-70b-instruct:free",
 
             messages=[
                 {
@@ -607,7 +607,7 @@ CONTENT:
         response = client.chat.completions.create(
 
 
-            model="google/gemma-3-4b-it:free",
+            model="meta-llama/llama-3.3-70b-instruct:free",
 
             messages=[
                 {
@@ -726,7 +726,7 @@ QUESTION:
         stream = client.chat.completions.create(
 
 
-            model="google/gemma-3-4b-it:free",
+            model="meta-llama/llama-3.3-70b-instruct:free",
 
             messages=[
                 {
