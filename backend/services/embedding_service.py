@@ -1,13 +1,16 @@
-from sentence_transformers import (
-    SentenceTransformer
-)
+import logging
 
-# =====================================
-# Load Embedding Model
-# =====================================
+from typing import List
+
+from sentence_transformers import SentenceTransformer
+
+logger = logging.getLogger(__name__)
+
 # =====================================
 # Lazy Loading Model
 # =====================================
+
+DEBUG = False
 
 model = None
 
@@ -18,131 +21,90 @@ def get_model():
 
     if model is None:
 
-        print("Loading Embedding Model...")
+        logger.info("Loading Embedding Model...")
 
-        from sentence_transformers import SentenceTransformer
-        
-        embedding_model = SentenceTransformer(
-            "sentence-transformers/all-MiniLM-L6-v2"
-        )
+        try:
+
+            model = SentenceTransformer(
+                "sentence-transformers/all-MiniLM-L6-v2"
+            )
+
+        except Exception as e:
+
+            logger.exception(e)
+
+            raise
 
     return model
+
 
 # =====================================
 # Generate Embeddings
 # =====================================
 
 def generate_embeddings(
-
-    chunks,
-
-    user_id
+    chunks: List[dict],
+    user_id: int
 ):
+
+    logger.info(
+        "Generating embeddings for %d chunks",
+        len(chunks)
+    )
 
     embedded_chunks = []
 
     # =================================
-    # Process Chunks
+    # Batch Encode All Chunks
     # =================================
 
-    for chunk in chunks:
+    texts = [chunk["text"] for chunk in chunks]
 
-        text = chunk["text"]
+    embeddings = get_model().encode(texts)
 
-        # =================================
-        # Generate Embedding
-        # =================================
+    # =================================
+    # Store Full Metadata
+    # =================================
 
-        embedding = get_model().encode(text)
-
-        # =================================
-        # Store Full Metadata
-        # =================================
+    for chunk, embedding in zip(chunks, embeddings):
 
         embedded_chunks.append({
-
-            "user_id":
-            user_id,
-
-            "pdf_file":
-            chunk["pdf_file"],
-
-            "page_number":
-            chunk["page_number"],
-
-            "chunk_number":
-            chunk["chunk_number"],
-
-            "chunk_length":
-            chunk["chunk_length"],
-
-            "text":
-            text,
-
-            "embedding":
-            embedding.tolist()
+            "user_id": user_id,
+            "pdf_file": chunk["pdf_file"],
+            "page_number": chunk["page_number"],
+            "chunk_number": chunk["chunk_number"],
+            "chunk_length": chunk["chunk_length"],
+            "text": chunk["text"],
+            "embedding": embedding.tolist()
         })
 
     # =================================
-    # Save Embedding Debug File
+    # Save Embedding Debug File (DEBUG only)
     # =================================
 
-    with open(
+    if DEBUG:
 
-        "embedding_output.txt",
+        with open(
+            "embedding_output.txt",
+            "w",
+            encoding="utf-8"
+        ) as f:
 
-        "w",
+            for item in embedded_chunks:
 
-        encoding="utf-8"
+                f.write("\n\n========================\n")
+                f.write(f"USER ID : {item['user_id']}\n")
+                f.write(f"PDF FILE : {item['pdf_file']}\n")
+                f.write(f"PAGE NUMBER : {item['page_number']}\n")
+                f.write(f"CHUNK NUMBER : {item['chunk_number']}\n")
+                f.write(f"TEXT:\n{item['text'][:300]}\n\n")
+                f.write("EMBEDDING VECTOR (FIRST 20 VALUES):\n")
+                f.write(str(item["embedding"][:20]))
+                f.write("\n")
 
-    ) as f:
-
-        for item in embedded_chunks:
-
-            f.write(
-                "\n\n========================\n"
-            )
-
-            f.write(
-                f"USER ID : "
-                f"{item['user_id']}\n"
-            )
-
-            f.write(
-                f"PDF FILE : "
-                f"{item['pdf_file']}\n"
-            )
-
-            f.write(
-                f"PAGE NUMBER : "
-                f"{item['page_number']}\n"
-            )
-
-            f.write(
-                f"CHUNK NUMBER : "
-                f"{item['chunk_number']}\n"
-            )
-
-            f.write(
-                f"TEXT:\n"
-                f"{item['text'][:300]}\n\n"
-            )
-
-            f.write(
-                "EMBEDDING VECTOR "
-                "(FIRST 20 VALUES):\n"
-            )
-
-            f.write(
-                str(item["embedding"][:20])
-            )
-
-            f.write("\n")
-
-    print(
-
-        f"\nTotal Embeddings Generated: "
-        f"{len(embedded_chunks)}"
+    logger.info(
+        "Generated %d embeddings",
+        len(embedded_chunks)
     )
 
     return embedded_chunks
