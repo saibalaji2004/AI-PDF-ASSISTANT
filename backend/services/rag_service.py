@@ -4,6 +4,7 @@ import numpy as np
 import os
 import httpx
 import traceback
+import time
 
 from pathlib import Path
 
@@ -56,6 +57,22 @@ print(
     "OpenRouter API Key Loaded"
 )
 
+if not api_key:
+    raise Exception("OPENROUTER_API_KEY not found")
+
+# =====================================
+# OpenRouter Models (with fallback)
+# =====================================
+
+MODELS = [
+
+    "meta-llama/llama-3.3-70b-instruct:free",
+
+    "google/gemma-4-31b-it:free",
+
+    "cohere/north-mini-code:free"
+]
+
 # =====================================
 # OpenRouter Client
 # =====================================
@@ -68,7 +85,7 @@ client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
 
     http_client=httpx.Client(
-        timeout=60.0
+        timeout=120.0
     ),
 
     default_headers={
@@ -104,7 +121,7 @@ def get_embedding_model():
 # Similarity Threshold
 # =====================================
 
-SIMILARITY_THRESHOLD = 1.5
+SIMILARITY_THRESHOLD = 1.0
 
 
 # =====================================
@@ -121,8 +138,15 @@ def retrieve_relevant_chunks(
 
     top_k=10,
 
-    max_chunks=4
+    max_chunks=3
 ):
+
+    # =================================
+    # Check Vector Store Exists
+    # =================================
+
+    if not os.path.exists("vector_store/faiss_index.bin"):
+        return [], []
 
     # =================================
     # Load FAISS Index
@@ -132,6 +156,13 @@ def retrieve_relevant_chunks(
 
         "vector_store/faiss_index.bin"
     )
+
+    # =================================
+    # Check Metadata Exists
+    # =================================
+
+    if not os.path.exists("vector_store/metadata.json"):
+        return [], []
 
     # =================================
     # Load Metadata
@@ -402,8 +433,11 @@ def ask_question(
 
     user_id,
 
-    chat_history=[]
+    chat_history=None
 ):
+
+    if chat_history is None:
+        chat_history = []
 
     retrieved_chunks, retrieved_sources = (
 
@@ -431,7 +465,7 @@ def ask_question(
             []
         }
 
-    context = "\n\n".join(
+    context = "\n-----------------------\n".join(
         retrieved_chunks
     )
 
@@ -454,14 +488,16 @@ def ask_question(
         )
 
     prompt = f"""
-You are an intelligent AI PDF assistant.
+You are an intelligent AI PDF Assistant.
 
-STRICT RULES:
+Rules:
 
-1. Answer ONLY using document context
-2. Be concise and accurate
-3. Avoid repetition
-4. Do NOT hallucinate
+1. Answer ONLY from the document.
+2. Never invent information.
+3. If the answer isn't present, reply:
+"I could not find that information in this document."
+4. Be concise.
+5. Mention page numbers whenever possible.
 
 ACTIVE PDF:
 {selected_pdf}
@@ -478,18 +514,50 @@ QUESTION:
 
     try:
 
-        response = client.chat.completions.create(
+        response = None
 
-            model="meta-llama/llama-3.3-70b-instruct:free",
+        for model in MODELS:
 
-            messages=[
-                {
-                    "role": "user",
+            for attempt in range(3):
 
-                    "content": prompt
-                }
-            ]
-        )
+                try:
+
+                    response = client.chat.completions.create(
+
+                        model=model,
+
+                        messages=[
+                            {
+                                "role": "user",
+
+                                "content": prompt
+                            }
+                        ]
+                    )
+
+                    print(f"Using model: {model}")
+
+                    break
+
+                except Exception as e:
+
+                    if "429" in str(e):
+
+                        print("Rate limited. Waiting 30 seconds...")
+
+                        time.sleep(30)
+
+                        continue
+
+                    print(f"{model} failed: {e}")
+
+                    break
+
+            if response is not None:
+                break
+
+        if response is None:
+            raise Exception("No available models.")
 
         answer = (
 
@@ -503,7 +571,7 @@ QUESTION:
         print(traceback.format_exc())
 
         answer = (
-            f"LLM Error: {repr(e)}"
+            "The AI service is temporarily unavailable. Please try again."
         )
 
     return {
@@ -532,6 +600,14 @@ def summarize_pdf(
 
     user_id
 ):
+
+    if not os.path.exists("vector_store/metadata.json"):
+
+        return {
+
+            "summary":
+            "No content found."
+        }
 
     with open(
 
@@ -604,19 +680,50 @@ CONTENT:
 
     try:
 
-        response = client.chat.completions.create(
+        response = None
 
+        for model in MODELS:
 
-            model="meta-llama/llama-3.3-70b-instruct:free",
+            for attempt in range(3):
 
-            messages=[
-                {
-                    "role": "user",
+                try:
 
-                    "content": prompt
-                }
-            ]
-        )
+                    response = client.chat.completions.create(
+
+                        model=model,
+
+                        messages=[
+                            {
+                                "role": "user",
+
+                                "content": prompt
+                            }
+                        ]
+                    )
+
+                    print(f"Using model: {model}")
+
+                    break
+
+                except Exception as e:
+
+                    if "429" in str(e):
+
+                        print("Rate limited. Waiting 30 seconds...")
+
+                        time.sleep(30)
+
+                        continue
+
+                    print(f"{model} failed: {e}")
+
+                    break
+
+            if response is not None:
+                break
+
+        if response is None:
+            raise Exception("No available models.")
 
         summary = (
 
@@ -630,7 +737,7 @@ CONTENT:
         print(traceback.format_exc())
 
         summary = (
-            f"Summary Error: {repr(e)}"
+            "The summary service is temporarily unavailable."
         )
 
     return {
@@ -655,8 +762,11 @@ def stream_answer(
 
     user_id,
 
-    chat_history=[]
+    chat_history=None
 ):
+
+    if chat_history is None:
+        chat_history = []
 
     retrieved_chunks, _ = (
 
@@ -676,7 +786,7 @@ def stream_answer(
 
         return
 
-    context = "\n\n".join(
+    context = "\n-----------------------\n".join(
         retrieved_chunks
     )
 
@@ -699,14 +809,16 @@ def stream_answer(
         )
 
     prompt = f"""
-You are an intelligent AI PDF assistant.
+You are an intelligent AI PDF Assistant.
 
-STRICT RULES:
+Rules:
 
-1. Answer ONLY using document context
-2. Be concise
-3. Avoid repetition
-4. Do NOT hallucinate
+1. Answer ONLY from the document.
+2. Never invent information.
+3. If the answer isn't present, reply:
+"I could not find that information in this document."
+4. Be concise.
+5. Mention page numbers whenever possible.
 
 ACTIVE PDF:
 {selected_pdf}
@@ -721,23 +833,42 @@ QUESTION:
 {question}
 """
 
+    stream = None
+
+    for model in MODELS:
+
+        try:
+
+            stream = client.chat.completions.create(
+
+                model=model,
+
+                messages=[
+                    {
+                        "role": "user",
+
+                        "content": prompt
+                    }
+                ],
+
+                stream=True
+            )
+
+            print(f"Using model: {model}")
+
+            break
+
+        except Exception as e:
+
+            print(f"{model} failed: {e}")
+
+    if stream is None:
+
+        yield "\nStreaming Error: No available models."
+
+        return
+
     try:
-
-        stream = client.chat.completions.create(
-
-
-            model="meta-llama/llama-3.3-70b-instruct:free",
-
-            messages=[
-                {
-                    "role": "user",
-
-                    "content": prompt
-                }
-            ],
-
-            stream=True
-        )
 
         for chunk in stream:
 
