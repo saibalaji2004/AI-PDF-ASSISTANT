@@ -36,9 +36,11 @@ load_dotenv(
 # =====================================
 # OpenRouter API Key
 # =====================================
-
-api_key = os.getenv(
-    "OPENROUTER_API_KEY"
+api_key = (
+    os.getenv("OPENROUTER_API_KEY", "")
+    .strip()
+    .replace("\n", "")
+    .replace("\r", "")
 )
 
 print("="*60)
