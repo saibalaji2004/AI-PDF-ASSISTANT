@@ -88,7 +88,9 @@ MODELS = [
 
     "meta-llama/llama-3.3-70b-instruct:free",
 
-    "cohere/north-mini-code:free"
+    "cohere/north-mini-code:free",
+
+    "liquid/lfm-2.5-1.2b-thinking:free"
 
 ]
 
@@ -104,7 +106,7 @@ client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
 
     http_client=httpx.Client(
-        timeout=180.0
+        timeout=84.0
     ),
 
     default_headers={
@@ -136,17 +138,26 @@ def call_openrouter(messages, stream=False):
 
                 logger.info(f"Trying {model} (Attempt {attempt + 1})")
 
+                logger.info(f"Current model : {model}")
+
                 response = client.chat.completions.create(
 
                     model=model,
 
                     messages=messages,
 
-                    stream=stream
+                    stream=stream,
+                    temperature=0.2,
 
                 )
 
-                logger.info(f"Model Selected : {model}")
+                logger.info(
+                    f"Response Time : {time.time()-start:.2f} seconds"
+                    )
+
+                logger.info("=" * 60)
+                logger.info(f"Using model : {model}")
+                logger.info("=" * 60)
 
                 return response
 
@@ -154,7 +165,9 @@ def call_openrouter(messages, stream=False):
 
                 last_error = e
 
-                logger.warning("Rate limited. Waiting 30 seconds...")
+                logger.warning(
+                    f"{model} is rate limited. Waiting 30 seconds..."
+                )
 
                 time.sleep(30)
 
@@ -174,7 +187,8 @@ def call_openrouter(messages, stream=False):
 
                 logger.warning(f"{model} connection failed.")
 
-                break
+                time.sleep(5)
+                continue
 
             except Exception as e:
 
@@ -182,10 +196,12 @@ def call_openrouter(messages, stream=False):
 
                 logger.warning(f"{model} failed: {e}")
 
-                break
-
-    raise last_error
-
+                continue
+            
+            if last_error:
+                raise last_error
+                
+            raise Exception("All OpenRouter models failed.")
 
 # =====================================
 # Embedding Model
@@ -206,7 +222,7 @@ def get_embedding_model():
         logger.info("Loading Embedding Model...")
 
         embedding_model = SentenceTransformer(
-            "all-MiniLM-L6-v2"
+            "sentence-transformers/all-MiniLM-L6-v2"
         )
 
     return embedding_model
@@ -215,7 +231,7 @@ def get_embedding_model():
 # Similarity Threshold
 # =====================================
 
-SIMILARITY_THRESHOLD = 0.80
+SIMILARITY_THRESHOLD = 1.20
 
 
 # =====================================
@@ -230,7 +246,7 @@ def retrieve_relevant_chunks(
 
     user_id,
 
-    top_k=10,
+    top_k=5,
 
     max_chunks=5
 ):
@@ -342,12 +358,15 @@ def retrieve_relevant_chunks(
     # Generate Embedding
     # =================================
 
-    question_embedding = (
+    question_embedding = get_embedding_model().encode(
 
-        get_embedding_model().encode(question)
+    question,
+
+    normalize_embeddings=True
+
     )
 
-    question_embedding = np.array(
+    question_embedding = np.ascontiguousarray(
 
         [question_embedding]
 
@@ -559,6 +578,14 @@ def ask_question(
     if chat_history is None:
         chat_history = []
 
+    if not question.strip():
+        
+        return {
+            "question": "",
+            "answer": "Question cannot be empty.",
+            "sources": []
+        }
+
     retrieved_chunks, retrieved_sources = (
 
         retrieve_relevant_chunks(
@@ -757,7 +784,9 @@ def summarize_pdf(
         pdf_chunks
     )
 
-    document_text = document_text[:18000]
+    MAX_CONTEXT = 18000
+
+    document_text = document_text[:MAX_CONTEXT]
 
     prompt = f"""
 Generate a concise summary
