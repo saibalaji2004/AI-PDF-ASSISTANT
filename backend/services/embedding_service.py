@@ -20,8 +20,10 @@ def get_model():
 
         print("Loading Embedding Model...")
 
-        model = SentenceTransformer(
-            "all-MiniLM-L6-v2"
+        from sentence_transformers import SentenceTransformer
+        
+        embedding_model = SentenceTransformer(
+            "sentence-transformers/all-MiniLM-L6-v2"
         )
 
     return model

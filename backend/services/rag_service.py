@@ -65,13 +65,35 @@ if not api_key:
 # =====================================
 
 MODELS = [
-
     "meta-llama/llama-3.3-70b-instruct:free",
-
     "google/gemma-4-31b-it:free",
-
     "cohere/north-mini-code:free"
 ]
+
+response = None
+
+for model in MODELS:
+
+    try:
+
+        print(f"Trying {model}")
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages
+        )
+
+        print(f"Using {model}")
+
+        break
+
+    except Exception as e:
+
+        print(e)
+
+if response is None:
+
+    raise Exception("No model available.")
 
 # =====================================
 # OpenRouter Client
@@ -543,9 +565,9 @@ QUESTION:
 
                     if "429" in str(e):
 
-                        print("Rate limited. Waiting 30 seconds...")
+                        print("Rate limited. Waiting 5 seconds...")
 
-                        time.sleep(30)
+                        time.sleep(5)
 
                         continue
 
@@ -709,9 +731,9 @@ CONTENT:
 
                     if "429" in str(e):
 
-                        print("Rate limited. Waiting 30 seconds...")
+                        print("Rate limited. Waiting 5 seconds...")
 
-                        time.sleep(30)
+                        time.sleep(5)
 
                         continue
 
