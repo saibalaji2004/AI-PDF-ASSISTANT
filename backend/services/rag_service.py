@@ -2,6 +2,7 @@ import faiss
 import json
 import numpy as np
 import os
+import httpx
 import traceback
 
 from pathlib import Path
@@ -40,6 +41,15 @@ api_key = os.getenv(
     "OPENROUTER_API_KEY"
 )
 
+print("="*60)
+print("OPENROUTER API KEY FOUND :", api_key is not None)
+
+if api_key:
+    print("API KEY LENGTH :", len(api_key))
+    print("FIRST 10 CHARS :", api_key[:10])
+
+print("="*60)
+
 print(
     "OpenRouter API Key Loaded"
 )
@@ -48,14 +58,22 @@ print(
 # OpenRouter Client
 # =====================================
 
+
 client = OpenAI(
 
-    base_url=
-    "https://openrouter.ai/api/v1",
+    api_key=api_key,
 
-    api_key=api_key
+    base_url="https://openrouter.ai/api/v1",
+
+    http_client=httpx.Client(
+        timeout=60.0
+    ),
+
+    default_headers={
+        "HTTP-Referer": "https://ai-pdf-assistant-production.up.railway.app",
+        "X-Title": "AI PDF Assistant"
+    }
 )
-
 # =====================================
 # Embedding Model
 # =====================================
