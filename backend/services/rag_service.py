@@ -5,6 +5,7 @@ import os
 import httpx
 import traceback
 import time
+import logging
 
 from pathlib import Path
 
@@ -14,9 +15,28 @@ from sentence_transformers import (
     SentenceTransformer
 )
 
-from openai import OpenAI
+from openai import (
+    OpenAI,
+    RateLimitError,
+    NotFoundError,
+    APIConnectionError
+)
 
 from rank_bm25 import BM25Okapi
+
+
+# =====================================
+# Logging Configuration
+# =====================================
+
+logging.basicConfig(
+
+    level=logging.INFO,
+
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
+
+logger = logging.getLogger(__name__)
 
 
 # =====================================
@@ -44,18 +64,16 @@ api_key = (
     .replace("\r", "")
 )
 
-print("="*60)
-print("OPENROUTER API KEY FOUND :", api_key is not None)
+logger.info("=" * 60)
+logger.info(f"OPENROUTER API KEY FOUND : {api_key is not None}")
 
 if api_key:
-    print("API KEY LENGTH :", len(api_key))
-    print("FIRST 10 CHARS :", api_key[:10])
+    logger.info(f"API KEY LENGTH : {len(api_key)}")
+    logger.info(f"FIRST 10 CHARS : {api_key[:10]}")
 
-print("="*60)
+logger.info("=" * 60)
 
-print(
-    "OpenRouter API Key Loaded"
-)
+logger.info("OpenRouter API Key Loaded")
 
 if not api_key:
     raise Exception("OPENROUTER_API_KEY not found")
@@ -65,35 +83,14 @@ if not api_key:
 # =====================================
 
 MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
+
     "google/gemma-4-31b-it:free",
+
+    "meta-llama/llama-3.3-70b-instruct:free",
+
     "cohere/north-mini-code:free"
+
 ]
-
-response = None
-
-for model in MODELS:
-
-    try:
-
-        print(f"Trying {model}")
-
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages
-        )
-
-        print(f"Using {model}")
-
-        break
-
-    except Exception as e:
-
-        print(e)
-
-if response is None:
-
-    raise Exception("No model available.")
 
 # =====================================
 # OpenRouter Client
@@ -107,7 +104,7 @@ client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
 
     http_client=httpx.Client(
-        timeout=120.0
+        timeout=180.0
     ),
 
     default_headers={
@@ -115,6 +112,81 @@ client = OpenAI(
         "X-Title": "AI PDF Assistant"
     }
 )
+
+
+# =====================================
+# Centralized OpenRouter Call (with fallback + retry)
+# =====================================
+
+def call_openrouter(messages, stream=False):
+
+    logger.info("=" * 60)
+
+    logger.info("Trying OpenRouter Models")
+
+    logger.info("=" * 60)
+
+    last_error = None
+
+    for model in MODELS:
+
+        for attempt in range(3):
+
+            try:
+
+                logger.info(f"Trying {model} (Attempt {attempt + 1})")
+
+                response = client.chat.completions.create(
+
+                    model=model,
+
+                    messages=messages,
+
+                    stream=stream
+
+                )
+
+                logger.info(f"Model Selected : {model}")
+
+                return response
+
+            except RateLimitError as e:
+
+                last_error = e
+
+                logger.warning("Rate limited. Waiting 30 seconds...")
+
+                time.sleep(30)
+
+                continue
+
+            except NotFoundError as e:
+
+                last_error = e
+
+                logger.warning(f"{model} unavailable.")
+
+                break
+
+            except APIConnectionError as e:
+
+                last_error = e
+
+                logger.warning(f"{model} connection failed.")
+
+                break
+
+            except Exception as e:
+
+                last_error = e
+
+                logger.warning(f"{model} failed: {e}")
+
+                break
+
+    raise last_error
+
+
 # =====================================
 # Embedding Model
 # =====================================
@@ -131,7 +203,7 @@ def get_embedding_model():
 
     if embedding_model is None:
 
-        print("Loading Embedding Model...")
+        logger.info("Loading Embedding Model...")
 
         embedding_model = SentenceTransformer(
             "all-MiniLM-L6-v2"
@@ -143,7 +215,7 @@ def get_embedding_model():
 # Similarity Threshold
 # =====================================
 
-SIMILARITY_THRESHOLD = 1.0
+SIMILARITY_THRESHOLD = 0.80
 
 
 # =====================================
@@ -160,7 +232,7 @@ def retrieve_relevant_chunks(
 
     top_k=10,
 
-    max_chunks=3
+    max_chunks=5
 ):
 
     # =================================
@@ -236,6 +308,12 @@ def retrieve_relevant_chunks(
     if len(pdf_chunks) == 0:
 
         return [], []
+
+    # =================================
+    # Don't search more vectors than exist
+    # =================================
+
+    top_k = min(top_k, len(pdf_chunks))
 
     # =================================
     # BM25
@@ -334,23 +412,34 @@ def retrieve_relevant_chunks(
 
             continue
 
-        combined_results.append({
+        chunk_key = (
 
-            "text":
-            chunk_data["text"],
-
-            "page_number":
             chunk_data["page_number"],
 
-            "chunk_number":
-            chunk_data["chunk_number"],
+            chunk_data["chunk_number"]
+        )
 
-            "pdf_file":
-            chunk_data["pdf_file"],
+        if chunk_key not in used_chunks:
 
-            "score":
-            float(1 / (distance + 0.01))
-        })
+            combined_results.append({
+
+                "text":
+                chunk_data["text"],
+
+                "page_number":
+                chunk_data["page_number"],
+
+                "chunk_number":
+                chunk_data["chunk_number"],
+
+                "pdf_file":
+                chunk_data["pdf_file"],
+
+                "score":
+                float(1 / (distance + 0.01))
+            })
+
+            used_chunks.add(chunk_key)
 
     # =================================
     # BM25 Results
@@ -360,23 +449,32 @@ def retrieve_relevant_chunks(
 
         chunk_data = pdf_chunks[i]
 
-        combined_results.append({
+        chunk_key = (
 
-            "text":
-            chunk_data["text"],
-
-            "page_number":
             chunk_data["page_number"],
 
-            "chunk_number":
-            chunk_data["chunk_number"],
+            chunk_data["chunk_number"]
+        )
 
-            "pdf_file":
-            chunk_data["pdf_file"],
+        if chunk_key not in used_chunks:
 
-            "score":
-            float(score)
-        })
+            combined_results.append({
+
+                "text":
+                chunk_data["text"],
+
+                "page_number":
+                chunk_data["page_number"],
+
+                "chunk_number":
+                chunk_data["chunk_number"],
+
+                "pdf_file":
+                chunk_data["pdf_file"],
+
+                "score":
+                float(score)
+            })
 
     # =================================
     # Sort Results
@@ -514,12 +612,19 @@ You are an intelligent AI PDF Assistant.
 
 Rules:
 
-1. Answer ONLY from the document.
-2. Never invent information.
-3. If the answer isn't present, reply:
+Answer ONLY using the supplied document.
+
+Never use outside knowledge.
+
+Never guess.
+
+If the answer is unavailable reply exactly:
+
 "I could not find that information in this document."
-4. Be concise.
-5. Mention page numbers whenever possible.
+
+Always be concise.
+
+Mention page numbers whenever possible.
 
 ACTIVE PDF:
 {selected_pdf}
@@ -536,50 +641,21 @@ QUESTION:
 
     try:
 
-        response = None
+        response = call_openrouter(
 
-        for model in MODELS:
+            [
 
-            for attempt in range(3):
+                {
 
-                try:
+                    "role": "user",
 
-                    response = client.chat.completions.create(
+                    "content": prompt
 
-                        model=model,
+                }
 
-                        messages=[
-                            {
-                                "role": "user",
+            ]
 
-                                "content": prompt
-                            }
-                        ]
-                    )
-
-                    print(f"Using model: {model}")
-
-                    break
-
-                except Exception as e:
-
-                    if "429" in str(e):
-
-                        print("Rate limited. Waiting 5 seconds...")
-
-                        time.sleep(5)
-
-                        continue
-
-                    print(f"{model} failed: {e}")
-
-                    break
-
-            if response is not None:
-                break
-
-        if response is None:
-            raise Exception("No available models.")
+        )
 
         answer = (
 
@@ -590,7 +666,7 @@ QUESTION:
 
     except Exception as e:
 
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
 
         answer = (
             "The AI service is temporarily unavailable. Please try again."
@@ -681,7 +757,7 @@ def summarize_pdf(
         pdf_chunks
     )
 
-    document_text = document_text[:12000]
+    document_text = document_text[:18000]
 
     prompt = f"""
 Generate a concise summary
@@ -702,50 +778,21 @@ CONTENT:
 
     try:
 
-        response = None
+        response = call_openrouter(
 
-        for model in MODELS:
+            [
 
-            for attempt in range(3):
+                {
 
-                try:
+                    "role": "user",
 
-                    response = client.chat.completions.create(
+                    "content": prompt
 
-                        model=model,
+                }
 
-                        messages=[
-                            {
-                                "role": "user",
+            ]
 
-                                "content": prompt
-                            }
-                        ]
-                    )
-
-                    print(f"Using model: {model}")
-
-                    break
-
-                except Exception as e:
-
-                    if "429" in str(e):
-
-                        print("Rate limited. Waiting 5 seconds...")
-
-                        time.sleep(5)
-
-                        continue
-
-                    print(f"{model} failed: {e}")
-
-                    break
-
-            if response is not None:
-                break
-
-        if response is None:
-            raise Exception("No available models.")
+        )
 
         summary = (
 
@@ -756,7 +803,7 @@ CONTENT:
 
     except Exception as e:
 
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
 
         summary = (
             "The summary service is temporarily unavailable."
@@ -835,12 +882,19 @@ You are an intelligent AI PDF Assistant.
 
 Rules:
 
-1. Answer ONLY from the document.
-2. Never invent information.
-3. If the answer isn't present, reply:
+Answer ONLY using the supplied document.
+
+Never use outside knowledge.
+
+Never guess.
+
+If the answer is unavailable reply exactly:
+
 "I could not find that information in this document."
-4. Be concise.
-5. Mention page numbers whenever possible.
+
+Always be concise.
+
+Mention page numbers whenever possible.
 
 ACTIVE PDF:
 {selected_pdf}
@@ -855,38 +909,31 @@ QUESTION:
 {question}
 """
 
-    stream = None
+    try:
 
-    for model in MODELS:
+        stream = call_openrouter(
 
-        try:
+            [
 
-            stream = client.chat.completions.create(
+                {
 
-                model=model,
+                    "role": "user",
 
-                messages=[
-                    {
-                        "role": "user",
+                    "content": prompt
 
-                        "content": prompt
-                    }
-                ],
+                }
 
-                stream=True
-            )
+            ],
 
-            print(f"Using model: {model}")
+            stream=True
 
-            break
+        )
 
-        except Exception as e:
+    except Exception as e:
 
-            print(f"{model} failed: {e}")
+        logger.error(traceback.format_exc())
 
-    if stream is None:
-
-        yield "\nStreaming Error: No available models."
+        yield f"\nStreaming Error: {repr(e)}"
 
         return
 
@@ -913,6 +960,6 @@ QUESTION:
                 yield delta.content
 
     except Exception as e:
-        print(traceback.format_exc())
+        logger.error(traceback.format_exc())
 
         yield f"\nStreaming Error: {repr(e)}"
