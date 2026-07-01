@@ -450,7 +450,10 @@ def retrieve_relevant_chunks(
     # Don't search more vectors than exist
     # =================================
 
-    top_k = min(top_k, len(pdf_chunks))
+    top_k = min(
+        max(top_k * 3, 10),
+        len(pdf_chunks)
+    )
 
     # =================================
     # BM25
@@ -522,9 +525,8 @@ def retrieve_relevant_chunks(
 
         distance = distances[0][rank]
 
-        if distance > SIMILARITY_THRESHOLD:
-
-            continue
+        # if distance > SIMILARITY_THRESHOLD:
+        #     continue
 
         # =================================
         # USER FILTER
@@ -616,16 +618,18 @@ def retrieve_relevant_chunks(
                 float(score)
             })
 
+            used_chunks.add(chunk_key)
+
     # =================================
     # Sort Results
     # =================================
 
     combined_results = sorted(
-
         combined_results,
-
-        key=lambda x: x["score"],
-
+        key=lambda x: (
+            x["score"],
+            -x["page_number"]
+        ),
         reverse=True
     )
 
@@ -636,6 +640,8 @@ def retrieve_relevant_chunks(
     retrieved_chunks = []
 
     retrieved_sources = []
+
+    used_chunks = set()
 
     for item in combined_results:
 
@@ -733,9 +739,20 @@ def ask_question(
             []
         }
 
-    context = "\n-----------------------\n".join(
-        retrieved_chunks
-    )
+    context = ""
+
+    for chunk, source in zip(
+        retrieved_chunks,
+        retrieved_sources
+    ):
+
+        context += (
+            f"\n[Page {source['page_number']}]\n"
+        )
+
+        context += chunk
+
+        context += "\n-----------------------\n"
 
     history_text = ""
 
