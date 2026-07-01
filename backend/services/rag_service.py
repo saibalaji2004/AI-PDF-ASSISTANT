@@ -22,6 +22,10 @@ from openai import (
     APIConnectionError
 )
 
+import google.generativeai as genai
+
+from groq import Groq
+
 from rank_bm25 import BM25Okapi
 
 
@@ -55,28 +59,46 @@ load_dotenv(
 )
 
 # =====================================
-# OpenRouter API Key
+# API Keys
 # =====================================
-api_key = (
+OPENROUTER_API_KEY = (
     os.getenv("OPENROUTER_API_KEY", "")
     .strip()
     .replace("\n", "")
     .replace("\r", "")
 )
 
-logger.info("=" * 60)
-logger.info(f"OPENROUTER API KEY FOUND : {api_key is not None}")
+GEMINI_API_KEY = os.getenv(
+    "GEMINI_API_KEY"
+)
 
-if api_key:
-    logger.info(f"API KEY LENGTH : {len(api_key)}")
-    logger.info(f"FIRST 10 CHARS : {api_key[:10]}")
+GROQ_API_KEY = os.getenv(
+    "GROQ_API_KEY"
+)
+
+logger.info("=" * 60)
+logger.info(f"OPENROUTER API KEY FOUND : {OPENROUTER_API_KEY is not None}")
+
+if OPENROUTER_API_KEY:
+    logger.info(f"API KEY LENGTH : {len(OPENROUTER_API_KEY)}")
+    logger.info(f"FIRST 10 CHARS : {OPENROUTER_API_KEY[:10]}")
 
 logger.info("=" * 60)
 
 logger.info("OpenRouter API Key Loaded")
 
-if not api_key:
+if not OPENROUTER_API_KEY:
     raise Exception("OPENROUTER_API_KEY not found")
+
+# =====================================
+# Configure Gemini
+# =====================================
+
+if GEMINI_API_KEY:
+
+    genai.configure(
+        api_key=GEMINI_API_KEY
+    )
 
 # =====================================
 # OpenRouter Models (with fallback)
@@ -99,9 +121,9 @@ MODELS = [
 # =====================================
 
 
-client = OpenAI(
+openrouter_client = OpenAI(
 
-    api_key=api_key,
+    api_key=OPENROUTER_API_KEY,
 
     base_url="https://openrouter.ai/api/v1",
 
@@ -114,6 +136,103 @@ client = OpenAI(
         "X-Title": "AI PDF Assistant"
     }
 )
+
+# =====================================
+# Groq Client
+# =====================================
+
+groq_client = None
+
+if GROQ_API_KEY:
+
+    groq_client = Groq(
+        api_key=GROQ_API_KEY
+    )
+
+
+# =====================================
+# Gemini Call
+# =====================================
+
+def call_gemini(
+    messages
+):
+
+    logger.info("=" * 60)
+    logger.info("Provider : Gemini")
+    logger.info("=" * 60)
+
+    model = genai.GenerativeModel(
+        "gemini-2.5-flash"
+    )
+
+    response = model.generate_content(
+
+        messages[-1]["content"]
+
+    )
+
+    return response.text
+
+
+# =====================================
+# Groq Call
+# =====================================
+
+def call_groq(
+    messages
+):
+
+    logger.info("=" * 60)
+    logger.info("Provider : Groq")
+    logger.info("=" * 60)
+
+    response = groq_client.chat.completions.create(
+
+        model="llama-3.3-70b-versatile",
+
+        messages=messages,
+
+        temperature=0.2
+
+    )
+
+    return response.choices[0].message.content
+
+
+# =====================================
+# Unified LLM Call (Gemini -> Groq -> OpenRouter)
+# =====================================
+
+def call_llm(
+    messages
+):
+
+    try:
+
+        logger.info("Trying Gemini")
+
+        return call_gemini(messages)
+
+    except Exception as e:
+
+        logger.warning(e)
+
+    try:
+
+        logger.info("Trying Groq")
+
+        return call_groq(messages)
+
+    except Exception as e:
+
+        logger.warning(e)
+
+    logger.info("Trying OpenRouter")
+
+    response = call_openrouter(messages)
+
+    return response.choices[0].message.content
 
 
 # =====================================
@@ -140,7 +259,9 @@ def call_openrouter(messages, stream=False):
 
                 logger.info(f"Current model : {model}")
 
-                response = client.chat.completions.create(
+                start = time.time()
+
+                response = openrouter_client.chat.completions.create(
 
                     model=model,
 
@@ -197,11 +318,11 @@ def call_openrouter(messages, stream=False):
                 logger.warning(f"{model} failed: {e}")
 
                 continue
-            
-            if last_error:
-                raise last_error
-                
-            raise Exception("All OpenRouter models failed.")
+
+    if last_error:
+        raise last_error
+
+    raise Exception("All OpenRouter models failed.")
 
 # =====================================
 # Embedding Model
@@ -668,7 +789,7 @@ QUESTION:
 
     try:
 
-        response = call_openrouter(
+        answer = call_llm(
 
             [
 
@@ -682,13 +803,6 @@ QUESTION:
 
             ]
 
-        )
-
-        answer = (
-
-            response
-            .choices[0]
-            .message.content
         )
 
     except Exception as e:
@@ -807,7 +921,7 @@ CONTENT:
 
     try:
 
-        response = call_openrouter(
+        summary = call_llm(
 
             [
 
@@ -821,13 +935,6 @@ CONTENT:
 
             ]
 
-        )
-
-        summary = (
-
-            response
-            .choices[0]
-            .message.content
         )
 
     except Exception as e:
@@ -937,6 +1044,10 @@ DOCUMENT CONTEXT:
 QUESTION:
 {question}
 """
+
+    # NOTE: Streaming stays on OpenRouter. call_llm() (Gemini/Groq) returns
+    # a plain string, not a token stream, so it can't be substituted here
+    # without separate streaming implementations for each provider.
 
     try:
 
