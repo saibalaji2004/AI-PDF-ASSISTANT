@@ -337,11 +337,11 @@ function ChatPage() {
             // STREAM REQUEST
             // =====================
 
-            const response = await fetch(
+const response = await fetch(
 
-                "http://127.0.0.1:8000/ask-stream",
+    `${import.meta.env.VITE_API_URL}/ask-stream`,
 
-                {
+    {
 
                     method: "POST",
 
@@ -423,7 +423,7 @@ function ChatPage() {
             const sourceResponse =
                 await API.post(
 
-                    "/ask",
+                    `${import.meta.env.VITE_API_URL}/ask`,
 
                     {
 
@@ -963,7 +963,7 @@ padding:"6px"
 
                                             await fetch(
 
-                                                `http://127.0.0.1:8000/pin-session/${session.id}`,
+                                                    `${import.meta.env.VITE_API_URL}/pin-session/${session.id}`,
 
                                                 {
 
@@ -1091,7 +1091,7 @@ padding:"6px"
 
                                             await fetch(
 
-                                                `http://127.0.0.1:8000/chat-session/${session.id}`,
+                                                `${import.meta.env.VITE_API_URL}/chat-session/${session.id}`,
 
                                                 {
 
@@ -1362,7 +1362,7 @@ padding:"6px"
                                                                     <a
 
                                                                         href={
-                                                                            `http://127.0.0.1:8000/view-pdf/${source.pdf_file}`
+                                                                            `${import.meta.env.VITE_API_URL}/view-pdf/${source.pdf_file}`
                                                                         }
 
                                                                         target="_blank"
@@ -1490,7 +1490,7 @@ padding:"6px"
                                 const response =
                                     await fetch(
 
-                                        `http://127.0.0.1:8000/export-chat/${sessionId}`,
+                                         `${import.meta.env.VITE_API_URL}/export-chat/${sessionId}`,
 
                                         {
                                             headers: {
@@ -1677,7 +1677,7 @@ padding:"6px"
 
                                     await fetch(
 
-                                        `http://127.0.0.1:8000/rename-session/${renameSessionId}`,
+                                        `${import.meta.env.VITE_API_URL}/rename-session/${renameSessionId}`,
 
                                         {
 
